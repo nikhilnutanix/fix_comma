@@ -157,7 +157,6 @@ func GetDataValue(value interface{}) *insights_interface.DataValue {
 // Returns:
 //   - insights_interface.DataValue
 func CheckValueTypeAndSet(filterValue interface{}) *insights_interface.DataValue {
-	glog.Infof("CheckValueTypeAndSet: filterValue: %v", filterValue)
 	builder := &insights_interface.DataValue{}
 	// check the type of value
 	// get simple name of the type
