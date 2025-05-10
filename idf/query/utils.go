@@ -1000,11 +1000,11 @@ func AbacCategorySimple(entityID string) *insights_interface.GetEntitiesArg {
 }
 
 func FixComma(db idf.IIdfExecutor) error {
-	tables := []string{util.CategoryIdfEntity, util.AbacCategoryType, util.AbacCategoryKeyType}
+	tables := []string{util.AbacCategoryKeyType, util.AbacCategoryType, util.CategoryIdfEntity}
 	columns := [][]string{
-		{util.KeyAttribute, util.NameAttribute, util.FqNameAttribute},
-		{util.AbacCategoryKeyAttribute, util.DescriptionAttribute, util.UUIDAttribute, util.ImmutableAttribute, util.InternalAttribute, util.OwnerUUIDAttribute, util.UserSpecifiedNameAttribute, util.ValueAttribute},
 		{util.DescriptionAttribute, util.NameAttribute, util.ImmutableAttribute, util.InternalAttribute, util.UUIDAttribute, util.OwnerUUIDAttribute},
+		{util.AbacCategoryKeyAttribute, util.DescriptionAttribute, util.UUIDAttribute, util.ImmutableAttribute, util.InternalAttribute, util.OwnerUUIDAttribute, util.UserSpecifiedNameAttribute, util.ValueAttribute},
+		{util.ParentExtIDAttribute, util.DescriptionAttribute, util.KeyAttribute, util.NameAttribute, util.FqNameAttribute, util.UserSpecifiedNameAttribute, util.KeyAttribute, util.CategoryTypeAttribute, util.ExtIDAttribute, util.ImmutableAttribute, util.InternalAttribute, util.OwnerUUIDAttribute},
 	}
 	for idx, table := range tables {
 		glog.Infof("Starting to process table: %s", table)
@@ -1039,6 +1039,12 @@ func FixComma(db idf.IIdfExecutor) error {
 		for _, entity := range ret.GetGroupResultsList()[0].GetRawResults() {
 			updated := false
 			attrs := make(map[string]*insights_interface.DataValue)
+			attrs[util.DescriptionAttribute] = &insights_interface.DataValue{
+				ValueType: &insights_interface.DataValue_StrValue{StrValue: ""},
+			}
+			attrs[util.OwnerUUIDAttribute] = &insights_interface.DataValue{
+				ValueType: &insights_interface.DataValue_StrValue{StrValue: ""},
+			}
 			for _, attrData := range entity.GetMetricDataList() {
 				if len(attrData.GetValueList()) == 0 {
 					continue
@@ -1049,12 +1055,6 @@ func FixComma(db idf.IIdfExecutor) error {
 			for key, value := range attrs {
 				if value == nil {
 					continue
-				}
-				attrs[util.DescriptionAttribute] = &insights_interface.DataValue{
-					ValueType: &insights_interface.DataValue_StrValue{StrValue: ""},
-				}
-				attrs[util.OwnerUUIDAttribute] = &insights_interface.DataValue{
-					ValueType: &insights_interface.DataValue_StrValue{StrValue: ""},
 				}
 				if key != util.DescriptionAttribute {
 					switch value.GetValueType().(type) {
@@ -1078,6 +1078,9 @@ func FixComma(db idf.IIdfExecutor) error {
 							ValueType: &insights_interface.DataValue_StrValue{StrValue: joinedValue},
 						}
 						updated = true
+					default:
+						glog.V(1).Infof("No action required for attribute: %s of entity %s in table: %s", key, entity.GetEntityGuid().GetEntityId(), table)
+						attrs[key] = value
 					}
 				} else {
 					attrs[key] = value
@@ -1113,6 +1116,7 @@ func FixComma(db idf.IIdfExecutor) error {
 				} else {
 					updateArg = MakeUpdateArg(entity.GetEntityGuid().GetEntityId(), table, MakeAttributeDataArgList(convertedAttrs))
 				}
+				glog.V(1).Infof("updateArg: %v", updateArg)
 				updates = append(updates, updateArg)
 			}
 		}
