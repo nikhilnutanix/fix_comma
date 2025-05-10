@@ -1056,33 +1056,34 @@ func FixComma(db idf.IIdfExecutor) error {
 				if value == nil {
 					continue
 				}
-				if key != util.DescriptionAttribute {
-					switch value.GetValueType().(type) {
-					case *insights_interface.DataValue_StrValue:
-						if strings.Contains(value.GetStrValue(), ",") {
-							glog.Infof("Found comma in string value for attribute: %s of entity %s in table: %s. Replacing with '-'", key, entity.GetEntityGuid().GetEntityId(), table)
-							newValue := strings.ReplaceAll(value.GetStrValue(), ",", "-")
-							attrs[key] = &insights_interface.DataValue{
-								ValueType: &insights_interface.DataValue_StrValue{StrValue: newValue},
-							}
-							updated = true
+				switch value.GetValueType().(type) {
+				case *insights_interface.DataValue_StrValue:
+					if strings.Contains(value.GetStrValue(), ",") && key != util.DescriptionAttribute {
+						glog.Infof("Found comma in string value for attribute: %s of entity %s in table: %s. Replacing with '-'", key, entity.GetEntityGuid().GetEntityId(), table)
+						newValue := strings.ReplaceAll(value.GetStrValue(), ",", "-")
+						attrs[key] = &insights_interface.DataValue{
+							ValueType: &insights_interface.DataValue_StrValue{StrValue: newValue},
 						}
-					case *insights_interface.DataValue_StrList_:
-						glog.Infof("Converting string list to single string for key: %s in table: %s", key, table)
-						joinedValue := strings.Join(value.GetStrList().GetValueList(), "-")
+						updated = true
+					}
+				case *insights_interface.DataValue_StrList_:
+					glog.Infof("Converting string list to single string for key: %s in table: %s", key, table)
+					var joinedValue string
+					if key == util.DescriptionAttribute {
+						joinedValue = strings.Join(value.GetStrList().GetValueList(), ",")
+					} else {
+						joinedValue = strings.Join(value.GetStrList().GetValueList(), "-")
 						if strings.Contains(joinedValue, ",") {
 							glog.Infof("Found comma in string list value for attribute: %s of entity %s in table: %s. Replacing with '-'", key, entity.GetEntityGuid().GetEntityId(), table)
 							joinedValue = strings.ReplaceAll(joinedValue, ",", "-")
 						}
-						attrs[key] = &insights_interface.DataValue{
-							ValueType: &insights_interface.DataValue_StrValue{StrValue: joinedValue},
-						}
-						updated = true
-					default:
-						glog.V(1).Infof("No action required for attribute: %s of entity %s in table: %s", key, entity.GetEntityGuid().GetEntityId(), table)
-						attrs[key] = value
 					}
-				} else {
+					attrs[key] = &insights_interface.DataValue{
+						ValueType: &insights_interface.DataValue_StrValue{StrValue: joinedValue},
+					}
+					updated = true
+				default:
+					glog.V(1).Infof("No action required for attribute: %s of entity %s in table: %s", key, entity.GetEntityGuid().GetEntityId(), table)
 					attrs[key] = value
 				}
 			}
