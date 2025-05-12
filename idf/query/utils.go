@@ -1009,130 +1009,146 @@ func FixComma(db idf.IIdfExecutor) error {
 	for idx, table := range tables {
 		glog.Infof("Starting to process table: %s", table)
 		glog.Infof("Fetching all entries from table: %s", table)
-		// Fetch all entries at once
-		arg := &insights_interface.GetEntitiesWithMetricsArg{
-			Query: &insights_interface.Query{
-				EntityList: []*insights_interface.EntityGuid{
-					{
-						EntityTypeName: proto.String(table),
+		// Fetch entries in batches using offset and length
+		offset := int64(0)
+		length := int64(100) // Batch size
+		for {
+			arg := &insights_interface.GetEntitiesWithMetricsArg{
+				Query: &insights_interface.Query{
+					EntityList: []*insights_interface.EntityGuid{
+						{
+							EntityTypeName: proto.String(table),
+						},
+					},
+					GroupBy: &insights_interface.QueryGroupBy{
+						RawColumns: MakeRawColumns(columns[idx]),
+						RawLimit: &insights_interface.QueryLimit{
+							Limit:  &length,
+							Offset: &offset,
+						},
 					},
 				},
-				GroupBy: &insights_interface.QueryGroupBy{
-					RawColumns: MakeRawColumns(columns[idx]),
-				},
-			},
-		}
-		ret, err := db.GetEntitiesWithMetrics(arg)
-		if err != nil {
-			glog.Errorf("Error fetching entries from table %s: %v", table, err)
-			return err
-		}
-		glog.Infof("Fetched %d entries from table: %s", GetRetLength(ret), table)
-		if GetRetLength(ret) == 0 {
-			glog.Infof("No entries to process in table: %s", table)
-			continue
-		}
-
-		glog.Infof("Processing entries from table: %s", table)
-		// Process each entry
-		updates := make([]*insights_interface.UpdateEntityArg, 0)
-		for _, entity := range ret.GetGroupResultsList()[0].GetRawResults() {
-			updated := false
-			attrs := make(map[string]*insights_interface.DataValue)
-			attrs[util.DescriptionAttribute] = &insights_interface.DataValue{
-				ValueType: &insights_interface.DataValue_StrValue{StrValue: ""},
 			}
-			attrs[util.OwnerUUIDAttribute] = &insights_interface.DataValue{
-				ValueType: &insights_interface.DataValue_StrValue{StrValue: ""},
+			ret, err := db.GetEntitiesWithMetrics(arg)
+			if err != nil {
+				glog.Errorf("Error fetching entries from table %s: %v", table, err)
+				return err
 			}
-			for _, attrData := range entity.GetMetricDataList() {
-				if len(attrData.GetValueList()) == 0 {
-					continue
-				}
-				attrs[attrData.GetName()] = attrData.GetValueList()[0].GetValue()
+			var fetchedCount int
+			if ret != nil && len(ret.GetGroupResultsList()) > 0 && ret.GetGroupResultsList()[0].GetRawResults() != nil {
+				fetchedCount = len(ret.GetGroupResultsList()[0].GetRawResults())
+			} else {
+				glog.Warningf("No results found or invalid response for table: %s", table)
+				fetchedCount = 0
 			}
-			// glog.Infof("attrs: %v", attrs)
-			for key, value := range attrs {
-				if value == nil {
-					continue
-				}
-				switch value.GetValueType().(type) {
-				case *insights_interface.DataValue_StrValue:
-					if strings.Contains(value.GetStrValue(), ",") && key != util.DescriptionAttribute {
-						glog.Infof("Found comma in string value for attribute: %s of entity %s in table: %s. Replacing with '-'", key, entity.GetEntityGuid().GetEntityId(), table)
-						newValue := strings.ReplaceAll(value.GetStrValue(), ",", "-")
-						attrs[key] = &insights_interface.DataValue{
-							ValueType: &insights_interface.DataValue_StrValue{StrValue: newValue},
-						}
-						updated = true
-					}
-				case *insights_interface.DataValue_StrList_:
-					glog.Infof("Converting string list to single string for key: %s in table: %s", key, table)
-					var joinedValue string
-					if key == util.DescriptionAttribute {
-						joinedValue = strings.Join(value.GetStrList().GetValueList(), ",")
-					} else {
-						joinedValue = strings.Join(value.GetStrList().GetValueList(), "-")
-						if strings.Contains(joinedValue, ",") {
-							glog.Infof("Found comma in string list value for attribute: %s of entity %s in table: %s. Replacing with '-'", key, entity.GetEntityGuid().GetEntityId(), table)
-							joinedValue = strings.ReplaceAll(joinedValue, ",", "-")
-						}
-					}
-					attrs[key] = &insights_interface.DataValue{
-						ValueType: &insights_interface.DataValue_StrValue{StrValue: joinedValue},
-					}
-					updated = true
-				default:
-					glog.V(1).Infof("No action required for attribute: %s of entity %s in table: %s", key, entity.GetEntityGuid().GetEntityId(), table)
-					attrs[key] = value
-				}
+			glog.Infof("Fetched %d entries from table: %s with offset: %d", fetchedCount, table, offset)
+			if fetchedCount == 0 {
+				glog.Infof("No more entries to process in table: %s", table)
+				break
 			}
 
-			if updated {
-				glog.Infof("Attributes updated for entity ID: %s in table: %s. Preparing update argument.", entity.GetEntityGuid().GetEntityId(), table)
-				convertedAttrs := make(map[string]interface{})
+			glog.Infof("Processing entries from table: %s", table)
+			// Process each entry
+			updates := make([]*insights_interface.UpdateEntityArg, 0)
+			for _, entity := range ret.GetGroupResultsList()[0].GetRawResults() {
+				updated := false
+				attrs := make(map[string]*insights_interface.DataValue)
+				attrs[util.DescriptionAttribute] = &insights_interface.DataValue{
+					ValueType: &insights_interface.DataValue_StrValue{StrValue: ""},
+				}
+				attrs[util.OwnerUUIDAttribute] = &insights_interface.DataValue{
+					ValueType: &insights_interface.DataValue_StrValue{StrValue: ""},
+				}
+				for _, attrData := range entity.GetMetricDataList() {
+					if len(attrData.GetValueList()) == 0 {
+						continue
+					}
+					attrs[attrData.GetName()] = attrData.GetValueList()[0].GetValue()
+				}
 				for key, value := range attrs {
 					if value == nil {
 						continue
 					}
-					// check the type of value and convert accordingly
 					switch value.GetValueType().(type) {
 					case *insights_interface.DataValue_StrValue:
-						convertedAttrs[key] = value.GetStrValue()
-					case *insights_interface.DataValue_Int64Value:
-						convertedAttrs[key] = value.GetInt64Value()
-					case *insights_interface.DataValue_BoolValue:
-						convertedAttrs[key] = value.GetBoolValue()
+						if strings.Contains(value.GetStrValue(), ",") && key != util.DescriptionAttribute {
+							glog.Infof("Found comma in string value for attribute: %s of entity %s in table: %s. Replacing with '-'", key, entity.GetEntityGuid().GetEntityId(), table)
+							newValue := strings.ReplaceAll(value.GetStrValue(), ",", "-")
+							attrs[key] = &insights_interface.DataValue{
+								ValueType: &insights_interface.DataValue_StrValue{StrValue: newValue},
+							}
+							updated = true
+						}
+					case *insights_interface.DataValue_StrList_:
+						glog.Infof("Converting string list to single string for key: %s in table: %s", key, table)
+						var joinedValue string
+						if key == util.DescriptionAttribute {
+							joinedValue = strings.Join(value.GetStrList().GetValueList(), ",")
+						} else {
+							joinedValue = strings.Join(value.GetStrList().GetValueList(), "-")
+							if strings.Contains(joinedValue, ",") {
+								glog.Infof("Found comma in string list value for attribute: %s of entity %s in table: %s. Replacing with '-'", key, entity.GetEntityGuid().GetEntityId(), table)
+								joinedValue = strings.ReplaceAll(joinedValue, ",", "-")
+							}
+						}
+						attrs[key] = &insights_interface.DataValue{
+							ValueType: &insights_interface.DataValue_StrValue{StrValue: joinedValue},
+						}
+						updated = true
+					default:
+						glog.V(1).Infof("No action required for attribute: %s of entity %s in table: %s", key, entity.GetEntityGuid().GetEntityId(), table)
+						attrs[key] = value
 					}
 				}
-				updateArg := &insights_interface.UpdateEntityArg{}
-				if table == util.AbacCategoryKeyType {
-					casValue, _ := GetCasValue(entity.GetEntityGuid().GetEntityId(), table, db)
-					(*casValue)++
-					updateArg = MakeCategoryKeyUpdateArg(casValue, convertedAttrs)
-				} else if table == util.AbacCategoryType {
-					casValue, _ := GetCasValue(entity.GetEntityGuid().GetEntityId(), table, db)
-					(*casValue)++
-					updateArg = MakeCategoryValueUpdateArg(casValue, convertedAttrs)
-				} else {
-					updateArg = MakeUpdateArg(entity.GetEntityGuid().GetEntityId(), table, MakeAttributeDataArgList(convertedAttrs))
-				}
-				glog.V(1).Infof("updateArg: %v", updateArg)
-				updates = append(updates, updateArg)
-			}
-		}
 
-		// Batch update the modified entries
-		if len(updates) > 0 {
-			glog.Infof("Batch updating %d entries in table: %s", len(updates), table)
-			_, err := db.BatchUpdateEntities(MakeBatchUpdateQuery(updates))
-			if err != nil {
-				glog.Errorf("Error updating entries in table %s: %v", table, err)
-				return err
+				if updated {
+					glog.Infof("Attributes updated for entity ID: %s in table: %s. Preparing update argument.", entity.GetEntityGuid().GetEntityId(), table)
+					convertedAttrs := make(map[string]interface{})
+					for key, value := range attrs {
+						if value == nil {
+							continue
+						}
+						switch value.GetValueType().(type) {
+						case *insights_interface.DataValue_StrValue:
+							convertedAttrs[key] = value.GetStrValue()
+						case *insights_interface.DataValue_Int64Value:
+							convertedAttrs[key] = value.GetInt64Value()
+						case *insights_interface.DataValue_BoolValue:
+							convertedAttrs[key] = value.GetBoolValue()
+						}
+					}
+					updateArg := &insights_interface.UpdateEntityArg{}
+					if table == util.AbacCategoryKeyType {
+						casValue, _ := GetCasValue(entity.GetEntityGuid().GetEntityId(), table, db)
+						(*casValue)++
+						updateArg = MakeCategoryKeyUpdateArg(casValue, convertedAttrs)
+					} else if table == util.AbacCategoryType {
+						casValue, _ := GetCasValue(entity.GetEntityGuid().GetEntityId(), table, db)
+						(*casValue)++
+						updateArg = MakeCategoryValueUpdateArg(casValue, convertedAttrs)
+					} else {
+						updateArg = MakeUpdateArg(entity.GetEntityGuid().GetEntityId(), table, MakeAttributeDataArgList(convertedAttrs))
+					}
+					glog.V(1).Infof("updateArg: %v", updateArg)
+					updates = append(updates, updateArg)
+				}
 			}
-			glog.Infof("Successfully updated %d entries in table: %s", len(updates), table)
-		} else {
-			glog.Infof("No updates required for the entries in table: %s", table)
+
+			// Batch update the modified entries
+			if len(updates) > 0 {
+				glog.Infof("Batch updating %d entries in table: %s", len(updates), table)
+				_, err := db.BatchUpdateEntities(MakeBatchUpdateQuery(updates))
+				if err != nil {
+					glog.Errorf("Error updating entries in table %s: %v", table, err)
+					return err
+				}
+				glog.Infof("Successfully updated %d entries in table: %s", len(updates), table)
+			} else {
+				glog.Infof("No updates required for the entries in table: %s", table)
+			}
+
+			// Increment offset for the next batch
+			offset += length
 		}
 
 		glog.Infof("Finished processing table: %s", table)
