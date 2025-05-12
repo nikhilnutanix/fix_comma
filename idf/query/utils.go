@@ -1002,16 +1002,17 @@ func AbacCategorySimple(entityID string) *insights_interface.GetEntitiesArg {
 func FixComma(db idf.IIdfExecutor) error {
 	tables := []string{util.AbacCategoryKeyType, util.AbacCategoryType, util.CategoryIdfEntity}
 	columns := [][]string{
-		{util.DescriptionAttribute, util.NameAttribute, util.ImmutableAttribute, util.InternalAttribute, util.UUIDAttribute, util.OwnerUUIDAttribute},
-		{util.AbacCategoryKeyAttribute, util.DescriptionAttribute, util.UUIDAttribute, util.ImmutableAttribute, util.InternalAttribute, util.OwnerUUIDAttribute, util.UserSpecifiedNameAttribute, util.ValueAttribute},
-		{util.ParentExtIDAttribute, util.DescriptionAttribute, util.KeyAttribute, util.NameAttribute, util.FqNameAttribute, util.UserSpecifiedNameAttribute, util.KeyAttribute, util.CategoryTypeAttribute, util.ExtIDAttribute, util.ImmutableAttribute, util.InternalAttribute, util.OwnerUUIDAttribute},
+		{util.UUIDAttribute, util.DescriptionAttribute, util.NameAttribute, util.ImmutableAttribute, util.InternalAttribute, util.OwnerUUIDAttribute},
+		{util.UUIDAttribute, util.AbacCategoryKeyAttribute, util.DescriptionAttribute, util.ImmutableAttribute, util.InternalAttribute, util.OwnerUUIDAttribute, util.UserSpecifiedNameAttribute, util.ValueAttribute},
+		{util.ExtIDAttribute, util.ParentExtIDAttribute, util.DescriptionAttribute, util.KeyAttribute, util.NameAttribute, util.FqNameAttribute, util.UserSpecifiedNameAttribute, util.KeyAttribute, util.CategoryTypeAttribute, util.ImmutableAttribute, util.InternalAttribute, util.OwnerUUIDAttribute},
 	}
 	for idx, table := range tables {
 		glog.Infof("Starting to process table: %s", table)
 		glog.Infof("Fetching all entries from table: %s", table)
 		// Fetch entries in batches using offset and length
 		offset := int64(0)
-		length := int64(100) // Batch size
+		length := int64(50) // Batch size
+		kAscendingAttr := insights_interface.QueryOrderBy_kAscending
 		for {
 			arg := &insights_interface.GetEntitiesWithMetricsArg{
 				Query: &insights_interface.Query{
@@ -1025,6 +1026,10 @@ func FixComma(db idf.IIdfExecutor) error {
 						RawLimit: &insights_interface.QueryLimit{
 							Limit:  &length,
 							Offset: &offset,
+						},
+						RawSortOrder: &insights_interface.QueryOrderBy{
+							SortColumn: &columns[idx][0],
+							SortOrder:  &kAscendingAttr,
 						},
 					},
 				},
