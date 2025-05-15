@@ -7,7 +7,6 @@ require (
 	github.com/golang/glog v1.2.4
 	github.com/nutanix-core/go-cache v0.0.0-20250406173923-5e9bc6a3c24b
 	github.com/nutanix-core/ntnx-api-categories/src/go v0.0.0-20250423055504-aa8dece846b4
-	google.golang.org/grpc v1.71.1
 	google.golang.org/protobuf v1.36.6
 )
 
@@ -32,6 +31,7 @@ require (
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250404141209-ee84b53bf3d0 // indirect
+	google.golang.org/grpc v1.71.1 // indirect
 )
 
 replace github.com/Shopify/sarama => github.com/Shopify/sarama v1.17.0
